@@ -11,29 +11,60 @@
         com.sun.xml.xsom.parser.XSOMParser
         com.sun.xml.xsom.XSSchemaSet
         java.net.URL
+        java.util.GregorianCalendar
+        javax.xml.namespace.QName
         java.io.ByteArrayInputStream
-        (com.owl_ontologies.ecsdiservices EcografiaType Imagen)
+        javax.xml.datatype.DatatypeFactory
+        (com.owl_ontologies.ecsdiservices EcografiaType Imagen CitaType)
         (com.sun.xml.xsom XSSimpleType XSComplexType)
         com.sun.xml.xsom.visitor.XSContentTypeVisitor)
 
 (defn array-of [cname]
   (-> cname resolve .newInstance list into-array class .getName))
 
-(defn schema-visitor []
-  (reify
+(def match-attributes)
+
+(def map-types (agent {}))
+
+(defn get-method-call [obj normal boolean]
+  (try
+    (clojure.lang.Reflector/invokeInstanceMethod obj normal (into-array (list)))
+    (catch Exception iae
+      (clojure.lang.Reflector/invokeInstanceMethod obj boolean (into-array (list))))))
+
+(defn get-attribute-with-object [attr value]
+  (let [name (.getName attr)
+        type (.getType attr)
+        methods (into [] (.getMethods (class value)))
+        method-call (str "get" (clojure.string/upper-case (first name)) (.substring name 1))
+        method-call-boolean (str "is" (clojure.string/upper-case (first name)) (.substring name 1))
+        result (get-method-call value method-call method-call-boolean)]
+    (if (instance? XSSimpleType type)
+      [name result]
+      [name (match-attributes type result)])))
+
+(defn get-attributes [attrs value]
+  (into [] (map #(get-attribute-with-object % value) attrs)))
+
+(defn visit-schema [xsv]
+  (.visit (:content-type (get @map-types xsv)) xsv))
+
+(defn schema-visitor [content-type value]
+  (let [xsv (reify
     com.sun.xml.xsom.visitor.XSVisitor
-    (empty [this empty]
-      (println "empty"))
+    (empty [this empty])
     (particle [this particle]
-      (println "particle")
       (let [term (.getTerm particle)]
         (if (.isModelGroup term)
           (let [particles (.getChildren term)]
-            (map #(.getName (.getTerm %)) particles)))))
-    (simpleType [this simpleType]
-      (println "simpleType"))
-    (complexType [this complexType]
-      (println "complexType"))))
+            (send map-types assoc this {:attrs (get-attributes (map #(.getTerm %) particles) value)})
+            (await map-types))
+          (throw (UnsupportedOperationException.)))))
+    (simpleType [this simpleType])
+    (complexType [this complexType]))]
+    (send map-types assoc xsv {:content-type content-type :value value})
+    (await map-types)
+    xsv))
 
 ;(set! *warn-on-reflection* true)
 
@@ -53,17 +84,27 @@
 (defn get-operations [^Definition d]
   (mapcat #(.getOperations (.getValue %)) (.getAllPortTypes d)))
 
-(defn generate-soap-request []
+(defn generate-soap-request [ns operation data]
   (xml/emit-str
     (xml/sexp-as-element
       [:S:Envelope {:xmlns:S "http://schemas.xmlsoap.org/soap/envelope/"}
        [:S:Header]
        [:S:Body
-        [:ns2:hello {:xmlns:ns2 "http://test/"}
-         [:name {} "dolly"]]]])))
+        [(keyword (str "ns" (.hashCode ns) ":" (.getName operation)))
+         {(keyword (str "xmlns:ns" (.hashCode ns))) ns}
+         data]]])))
 
-(defn send-soap-request [msg]
-  (client/post "http://localhost:8080/WebServiceExample/CitaService" {:headers {"SOAPAction" "" "Content-Type" "text/xml; charset=utf-8"} :body msg}))
+(defn send-soap-request [url msg]
+  (->
+    (client/post url {:headers {"SOAPAction" "" "Content-Type" "text/xml; charset=utf-8"} :body msg})
+    :body
+    xml/parse-str
+    :content
+    first
+    :content
+    first
+    :content
+    first))
 
 (defn get-schema-type [schema ns type]
   (let [schema-ns (.getSchema schema ns)
@@ -71,12 +112,10 @@
     schema-type))
 
 (defn match-attributes [schema-type value]
-  (println schema-type)
   (let [content-type (.getContentType schema-type)
-        sv (schema-visitor)]
-    (.visit content-type sv)
-    (println (.test sv))
-    (println content-type)))
+        sv (schema-visitor content-type value)]
+    (visit-schema sv)
+    (:attrs (get @map-types sv))))
 
 (defn match-primitive [value type]
     value)
@@ -92,11 +131,91 @@
       {name (match-primitive value type)}
       (let [schema-type (get-schema-type schema ns type)]
         (if (instance? XSSimpleType schema-type)
-          {name (match-primitive value (.getName (.getPrimitiveType schema-type)))}
-          {name (match-attributes schema-type value)})))))
+          [name (match-primitive value (.getName (.getPrimitiveType schema-type)))]
+          [name (match-attributes schema-type value)]))))) ; or else (QName. ns name)? 
 
 (defn match-inputs [m schema]
   (map #(match-input % schema) m))
+
+(def map-to-xml)
+
+(defn process-attributes [v]
+  (if (vector? v)
+    (map-to-xml v)
+    v))
+
+(defn item-to-element [item]
+  (let [k (first item)
+        v (second item)]
+    (if (instance? QName k)
+      (let [name (.getLocalPart k)
+            ns (.getNamespaceURI k)]
+        [(keyword (str "ns" (.hashCode ns) ":" name))
+         {(keyword (str "xmlns:ns" (.hashCode ns))) ns}
+         (process-attributes v)])
+      [(keyword k) {} (process-attributes v)])))
+
+(defn map-to-xml [m]
+  (map item-to-element m))
+
+(defn get-name [obj]
+  (.getName obj))
+
+(defn get-setters [obj]
+  (filter #(.startsWith % "set") (map get-name (.getMethods (class obj)))))
+
+(defn set-attribute-from-xml [attr xml]
+  (println xml)
+  )
+
+(defn xml-to-attribute [xml-item]
+  (println xml-item)
+  (let [attribute-name (name (:tag xml-item))]
+    {(str "set" (clojure.string/upper-case (first attribute-name)) (.substring attribute-name 1))
+     (first (:content xml-item))}))
+
+(defn xml-to-map [xml]
+  (apply merge (map xml-to-attribute xml)))
+
+(def match-output)
+
+(defn apply-operation [obj operation]
+  (println (key operation))
+  (println (class (val operation)))
+  (let [methods (into [] (.getMethods (class obj)))
+        filtered (filter #(.endsWith (.getName %) (key operation)) methods)
+        method (first filtered)
+        type (.getName (first (into [] (.getParameterTypes method))))]
+    (cond
+      (.startsWith type "javax.xml.datatype.XMLGregorianCalendar")
+        (clojure.lang.Reflector/invokeInstanceMethod obj (key operation) (into-array (list (.newXMLGregorianCalendar (DatatypeFactory/newInstance) (val operation)))))
+      (or
+        (.startsWith type "javax.xml.datatype.")
+        (.startsWith type "java.lang."))
+        (clojure.lang.Reflector/invokeInstanceMethod obj (key operation) (into-array (list (val operation))))
+      (or (= type "int"))
+        (clojure.lang.Reflector/invokeInstanceMethod obj (key operation) (into-array (list (Integer/parseInt (val operation)))))
+      (or (= type "float"))
+        (clojure.lang.Reflector/invokeInstanceMethod obj (key operation) (into-array (list (Float/parseFloat (val operation)))))
+      (or (= type "bool") (= type "boolean"))
+        (clojure.lang.Reflector/invokeInstanceMethod obj (key operation) (into-array (list (Boolean/parseBoolean (val operation)))))
+      :else ; adhoc object!
+        (do
+          (let [nested (-> type symbol resolve .newInstance)
+                structure (if (instance? clojure.data.xml.Element (first (val operation)))
+                            (val operation)
+                            (list (val operation)))]
+            (clojure.lang.Reflector/invokeInstanceMethod
+              obj
+              (key operation)
+              (into-array (list (match-output structure nested)))))))))
+
+(defn match-output [xml obj]
+  (let [setters (into [] (get-setters obj))
+        list-attr (xml-to-map xml)
+        matched (apply merge (map #(hash-map % (get list-attr %)) setters))]
+    (dorun (map #(apply-operation obj %) matched))
+    obj))
 
 (defn -callService [^String wsdl #^#=(array-of Object) params ^Class output]
   (let [wsdl-parts (clojure.string/split wsdl #"#")
@@ -111,7 +230,22 @@
           inputs (-> op .getInput .getMessage (.getOrderedParts nil))
           outputs (-> op .getOutput .getMessage (.getOrderedParts nil))
           map-inputs (apply hash-map (interleave inputs params))
-          actual-inputs (match-inputs map-inputs sch)]
-      actual-inputs)))
+          actual-inputs (match-inputs map-inputs sch)
+          xml-inputs (map-to-xml actual-inputs)
+          soap-request (generate-soap-request (.getTargetNamespace wsdl-obj) op xml-inputs)
+          call-url (clojure.string/replace wsdl-url "?WSDL" "")
+          response (send-soap-request call-url soap-request)]
+      (println response)
+      (match-output (:content response) (.newInstance output)))))
 
-(-callService "http://localhost:8080/ExampleWebApplication/EcografiaService?WSDL#asignarCita" (to-array [(EcografiaType.) "sergio"]) String)
+(let [imagen (Imagen.)
+      ecografia (EcografiaType.)]
+  (doto imagen
+    (.setIDPrueba "IDImagen"))
+  (doto ecografia
+    (.setEcoDate (.newXMLGregorianCalendar (DatatypeFactory/newInstance) (GregorianCalendar.)))
+    (.setSubPrueba imagen))
+  (let [result (-callService "http://localhost:8080/ExampleWebApplication/EcografiaService?WSDL#asignarCita" (to-array [ecografia "sergio"]) EcografiaType)]
+    (println (.getSubPrueba result))
+    (println (.getIDPrueba (.getSubPrueba result)))
+    (println (.getEcoFloat result))))
