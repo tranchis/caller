@@ -11,7 +11,10 @@ The provided class is com.github.tranchis.caller.Caller and the syntax of the ca
 
 ```java
 Caller c = new Caller();
-result = c.callService("http://server:port/webapp/service?WSDL#operationName", new Object[] { input1, input2 }, OutputClass.class);
+result = c.callService(
+  "http://server:port/webapp/service?WSDL#operationName",
+  new Object[] { input1, input2 },
+  OutputClass.class);
 ```
 
 The first parameter points to the operation section of the service WSDL, the second parameter is an array of objects with the inputs that match
