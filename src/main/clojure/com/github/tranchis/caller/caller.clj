@@ -1,5 +1,4 @@
-(ns com.github.tranchis.caller
-  (:gen-class)
+(ns com.github.tranchis.caller.Caller
   (require [clj-http.client :as client])
   (require [clojure.data.xml :as xml]
            [clojure.zip :as zip]))
@@ -15,12 +14,20 @@
         javax.xml.namespace.QName
         java.io.ByteArrayInputStream
         javax.xml.datatype.DatatypeFactory
-        (com.owl_ontologies.ecsdiservices EcografiaType Imagen CitaType)
         (com.sun.xml.xsom XSSimpleType XSComplexType)
         com.sun.xml.xsom.visitor.XSContentTypeVisitor)
 
 (defn array-of [cname]
   (-> cname resolve .newInstance list into-array class .getName))
+
+(gen-class
+  :name com.github.tranchis.caller.Caller
+  :methods [
+            [callService [String #=(array-of Object) Class] Object]
+           ])
+  
+(defn ^String -prueba [this ^String a]
+  "prueba")
 
 (def match-attributes)
 
@@ -164,12 +171,7 @@
 (defn get-setters [obj]
   (filter #(.startsWith % "set") (map get-name (.getMethods (class obj)))))
 
-(defn set-attribute-from-xml [attr xml]
-  (println xml)
-  )
-
 (defn xml-to-attribute [xml-item]
-  (println xml-item)
   (let [attribute-name (name (:tag xml-item))]
     {(str "set" (clojure.string/upper-case (first attribute-name)) (.substring attribute-name 1))
      (first (:content xml-item))}))
@@ -180,8 +182,6 @@
 (def match-output)
 
 (defn apply-operation [obj operation]
-  (println (key operation))
-  (println (class (val operation)))
   (let [methods (into [] (.getMethods (class obj)))
         filtered (filter #(.endsWith (.getName %) (key operation)) methods)
         method (first filtered)
@@ -217,7 +217,7 @@
     (dorun (map #(apply-operation obj %) matched))
     obj))
 
-(defn -callService [^String wsdl #^#=(array-of Object) params ^Class output]
+(defn ^Object -callService [this ^String wsdl #^#=(array-of Object) params ^Class output]
   (let [wsdl-parts (clojure.string/split wsdl #"#")
         wsdl-url (first wsdl-parts)
         wsdl-operation (second wsdl-parts)
@@ -235,17 +235,12 @@
           soap-request (generate-soap-request (.getTargetNamespace wsdl-obj) op xml-inputs)
           call-url (clojure.string/replace wsdl-url "?WSDL" "")
           response (send-soap-request call-url soap-request)]
-      (println response)
+      ;(println response)
       (match-output (:content response) (.newInstance output)))))
 
-(let [imagen (Imagen.)
-      ecografia (EcografiaType.)]
-  (doto imagen
-    (.setIDPrueba "IDImagen"))
-  (doto ecografia
-    (.setEcoDate (.newXMLGregorianCalendar (DatatypeFactory/newInstance) (GregorianCalendar.)))
-    (.setSubPrueba imagen))
-  (let [result (-callService "http://localhost:8080/ExampleWebApplication/EcografiaService?WSDL#asignarCita" (to-array [ecografia "sergio"]) EcografiaType)]
-    (println (.getSubPrueba result))
-    (println (.getIDPrueba (.getSubPrueba result)))
-    (println (.getEcoFloat result))))
+;; Compile, if we can
+;; Should fail when called from Java (AOT) but that's fine
+(try
+  (set! *compile-path* "contrib/clojure-binaries")
+  (compile 'com.github.tranchis.caller.Caller)
+  (catch Exception e))
