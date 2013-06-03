@@ -20,15 +20,6 @@
 (defn array-of [cname]
   (-> cname resolve .newInstance list into-array class .getName))
 
-(gen-class
-  :name com.github.tranchis.caller.Caller
-  :methods [
-            [callService [String #=(array-of Object) Class] Object]
-           ])
-  
-(defn ^String -prueba [this ^String a]
-  "prueba")
-
 (def match-attributes)
 
 (def map-types (agent {}))
@@ -258,6 +249,12 @@
       ;(println response)
       (match-output (:content response) (.newInstance output)))))
 
+(gen-class
+  :name com.github.tranchis.caller.Caller
+  :methods [
+            [callService [String #=(array-of Object) Class] Object]
+           ])
+  
 ;; Compile, if we can
 ;; Should fail when called from Java (AOT) but that's fine
 (try
