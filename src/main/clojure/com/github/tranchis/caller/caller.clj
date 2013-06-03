@@ -40,18 +40,28 @@
       (clojure.lang.Reflector/invokeInstanceMethod obj boolean (into-array (list))))))
 
 (defn get-attribute-with-object [attr value]
-  (let [name (.getName attr)
-        type (.getType attr)
-        methods (into [] (.getMethods (class value)))
-        method-call (str "get" (clojure.string/upper-case (first name)) (.substring name 1))
-        method-call-boolean (str "is" (clojure.string/upper-case (first name)) (.substring name 1))
-        result (get-method-call value method-call method-call-boolean)]
-    (if (instance? XSSimpleType type)
-      [name result]
-      [name (match-attributes type result)])))
+  (if (nil? value)
+    nil
+    (try
+      (let [name (.getName attr)
+            type (.getType attr)
+            methods (into [] (.getMethods (class value)))
+            method-call (str "get" (clojure.string/upper-case (first name)) (.substring name 1))
+            method-call-boolean (str "is" (clojure.string/upper-case (first name)) (.substring name 1))
+            result (get-method-call value method-call method-call-boolean)]
+        (if (instance? XSSimpleType type)
+          [name result]
+          [name (match-attributes type result)]))
+      (catch NullPointerException e
+        nil)
+      (catch Exception e
+        (println (str "method not found: " (.getName attr)))))))
+
+(defn not-nil? [x]
+  (not (nil? x)))
 
 (defn get-attributes [attrs value]
-  (into [] (map #(get-attribute-with-object % value) attrs)))
+  (into [] (filter not-nil? (map #(get-attribute-with-object % value) (filter #(not (nil? %)) attrs)))))
 
 (defn visit-schema [xsv]
   (.visit (:content-type (get @map-types xsv)) xsv))
@@ -89,7 +99,7 @@
   (first (filter #(= (clojure.string/lower-case name-operation) (clojure.string/lower-case (.getName %))) list-operations)))
 
 (defn get-operations [^Definition d]
-  (mapcat #(.getOperations (.getValue %)) (.getAllPortTypes d)))
+  (mapcat #(.getOperations (.getValue %)) (.getPortTypes d)))
 
 (defn generate-soap-request [ns operation data]
   (xml/emit-str
@@ -102,16 +112,18 @@
          data]]])))
 
 (defn send-soap-request [url msg]
-  (->
-    (client/post url {:headers {"SOAPAction" "" "Content-Type" "text/xml; charset=utf-8"} :body msg})
-    :body
-    xml/parse-str
-    :content
-    first
-    :content
-    first
-    :content
-    first))
+  (let [result (client/post url {:headers {"SOAPAction" "" "Content-Type" "text/xml; charset=utf-8"} :body msg})]
+    ;(println result)
+    (->
+      result
+      :body
+      xml/parse-str
+      :content
+      first
+      :content
+      first
+      :content
+      first)))
 
 (defn get-schema-type [schema ns type]
   (let [schema-ns (.getSchema schema ns)
@@ -119,10 +131,11 @@
     schema-type))
 
 (defn match-attributes [schema-type value]
-  (let [content-type (.getContentType schema-type)
+  (if (not (nil? value))
+    (let [content-type (.getContentType schema-type)
         sv (schema-visitor content-type value)]
     (visit-schema sv)
-    (:attrs (get @map-types sv))))
+    (:attrs (get @map-types sv)))))
 
 (defn match-primitive [value type]
     value)
@@ -169,11 +182,14 @@
   (.getName obj))
 
 (defn get-setters [obj]
-  (filter #(.startsWith % "set") (map get-name (.getMethods (class obj)))))
+  (let [res (filter #(.startsWith % "set") (map get-name (.getMethods (class obj))))]
+    ;(println "setters: " res)
+    res))
 
 (defn xml-to-attribute [xml-item]
   (let [attribute-name (name (:tag xml-item))]
-    {(str "set" (clojure.string/upper-case (first attribute-name)) (.substring attribute-name 1))
+    ;(println "setterName: " (str "set" (apply str (map #(apply str (clojure.string/upper-case (first %)) (.substring % 1)) (clojure.string/split attribute-name #"-|_")))))
+    {(str "set" (apply str (map #(apply str (clojure.string/upper-case (first %)) (.substring % 1)) (clojure.string/split attribute-name #"-|_"))))
      (first (:content xml-item))}))
 
 (defn xml-to-map [xml]
@@ -186,9 +202,12 @@
         filtered (filter #(.endsWith (.getName %) (key operation)) methods)
         method (first filtered)
         type (.getName (first (into [] (.getParameterTypes method))))]
-    (cond
+    (if (not (nil? (val operation)))
+      (cond
       (.startsWith type "javax.xml.datatype.XMLGregorianCalendar")
-        (clojure.lang.Reflector/invokeInstanceMethod obj (key operation) (into-array (list (.newXMLGregorianCalendar (DatatypeFactory/newInstance) (val operation)))))
+        (do
+          ;(println "Applying " (key operation) ": " (val operation))
+          (clojure.lang.Reflector/invokeInstanceMethod obj (key operation) (into-array (list (.newXMLGregorianCalendar (DatatypeFactory/newInstance) (val operation))))))
       (or
         (.startsWith type "javax.xml.datatype.")
         (.startsWith type "java.lang."))
@@ -208,12 +227,13 @@
             (clojure.lang.Reflector/invokeInstanceMethod
               obj
               (key operation)
-              (into-array (list (match-output structure nested)))))))))
+              (into-array (list (match-output structure nested))))))))))
 
 (defn match-output [xml obj]
   (let [setters (into [] (get-setters obj))
         list-attr (xml-to-map xml)
         matched (apply merge (map #(hash-map % (get list-attr %)) setters))]
+    ;(println "matched: " matched)
     (dorun (map #(apply-operation obj %) matched))
     obj))
 
@@ -222,7 +242,7 @@
         wsdl-url (first wsdl-parts)
         wsdl-operation (second wsdl-parts)
         wsdl-reader (WSDLReaderImpl.)]
-    (.setFeature wsdl-reader "com.ibm.wsdl.parseXMLSchemas" true)
+    ;(.setFeature wsdl-reader "com.ibm.wsdl.parseXMLSchemas" true)
     (let [wsdl-obj (-> wsdl-reader (.readWSDL wsdl-url))
           ops (get-operations wsdl-obj)
           op (get-operation ops wsdl-operation)
