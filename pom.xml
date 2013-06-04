@@ -128,4 +128,11 @@
 			</plugins>
 		</pluginManagement>
 	</build>
+	<distributionManagement>
+		<repository>
+			<id>bintray-tranchis-caller-com.github.tranchis.caller</id>
+			<name>tranchis-caller-com.github.tranchis.caller</name>
+			<url>https://api.bintray.com/maven/tranchis/caller/com.github.tranchis.caller</url>
+		</repository>
+	</distributionManagement>
 </project>
