@@ -9,8 +9,8 @@ import javax.xml.datatype.XMLGregorianCalendar;
 import org.junit.Test;
 
 import com.github.tranchis.caller.Caller;
-import com.owl_ontologies.ecsdiservices.EcografiaType;
-import com.owl_ontologies.ecsdiservices.Imagen;
+import com.owl_ontologies.ecsdiservices0.EcografiaType;
+import com.owl_ontologies.ecsdiservices0.Imagen;
 
 public class CallerTest {
 	@Test

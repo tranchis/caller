@@ -10,12 +10,12 @@ import javax.xml.bind.annotation.XmlType;
 
 
 /**
- * <p>Java class for CitaType complex type.
+ * <p>Java class for Cita complex type.
  * 
  * <p>The following schema fragment specifies the expected content contained within this class.
  * 
  * <pre>
- * &lt;complexType name="CitaType">
+ * &lt;complexType name="Cita">
  *   &lt;complexContent>
  *     &lt;restriction base="{http://www.w3.org/2001/XMLSchema}anyType">
  *       &lt;sequence>
@@ -35,7 +35,7 @@ import javax.xml.bind.annotation.XmlType;
  * 
  */
 @XmlAccessorType(XmlAccessType.FIELD)
-@XmlType(name = "CitaType", propOrder = {
+@XmlType(name = "Cita", propOrder = {
     "estatCita",
     "haCitat",
     "teLlocA",
@@ -44,7 +44,7 @@ import javax.xml.bind.annotation.XmlType;
     "perRealitzar",
     "teLlocEn"
 })
-public class CitaType {
+public class Cita {
 
     @XmlElement(name = "Estat_cita")
     protected List<EstatCitaType> estatCita;
