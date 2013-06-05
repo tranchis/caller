@@ -15,6 +15,7 @@
         java.io.ByteArrayInputStream
         javax.xml.datatype.DatatypeFactory
         (com.sun.xml.xsom XSSimpleType XSComplexType)
+        ;com.owl_ontologies.ecsdiservices.ConjuntCentresType
         com.sun.xml.xsom.visitor.XSContentTypeVisitor)
 
 (defn array-of [cname]
@@ -199,7 +200,6 @@
     res))
 
 (defn xml-to-attribute [xml-item]
-  ;(println "xml-to-attribute: " xml-item)
   (let [attribute-name (name (:tag xml-item))]
     ;;(println "setterName: " (str "set" (apply str (map #(apply str (clojure.string/upper-case (first %)) (.substring % 1)) (clojure.string/split attribute-name #"-|_")))))
     {(str (apply str (map #(apply str (clojure.string/upper-case (first %)) (.substring % 1)) (clojure.string/split attribute-name #"-|_"))))
@@ -264,11 +264,14 @@
         value (val operation)] 
     (if (not (nil? value))
       (if (vector? value)
-      (apply-operation-multiple obj (str "get" name) value)
-      (apply-operation-single obj (str "set" name) value)))))
+        (apply-operation-multiple obj (str "get" name) value)
+        (let [m (find-method obj (str "set" name))]
+          (if (nil? m)
+            (apply-operation-multiple obj (str "get" name) [value])
+            (apply-operation-single obj (str "set" name) value)))))))
 
 (defn match-output [xml obj]
-  ;;(println "match-output: " xml obj)
+  ;(println "match-output: " xml obj)
   (let [setters (into [] (get-setters obj))
         list-attr (xml-to-map xml)
         matched (apply merge (map #(hash-map % (get list-attr %)) setters))]
@@ -312,3 +315,34 @@
   (set! *compile-path* "contrib/clojure-binaries")
   (compile 'com.github.tranchis.caller.Caller)
   (catch Exception e))
+
+
+;(let [result (client/post "http://localhost:8080/ECSDI2/Asseguradora1PortTypeService" {:headers {"SOAPAction" "" "Content-Type" "text/xml; charset=utf-8"}
+;                               :body "<?xml version='1.0' encoding='UTF-8'?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Header></S:Header><S:Body><ns1716564955:LlistaCentresDeSalut xmlns:ns1716564955=\"http://www.owl-ontologies.com/ECSDIServices\"><InputRestriccions><seguint></seguint></InputRestriccions><InputAccioAutoritzacio>http://www.owl-ontologies.com/ECSDIOntology.owl#Analisi_de_orina</InputAccioAutoritzacio><InputPacientAutoritzacio><DNI></DNI><NumeroSS></NumeroSS><prefereix></prefereix></InputPacientAutoritzacio></ns1716564955:LlistaCentresDeSalut></S:Body></S:Envelope>"})]
+;    ;;(println result)
+;    (->
+;      result
+;      :body))
+
+;(let [str "<?xml version='1.0' encoding='UTF-8'?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Body><ns1716564955:OutputCentresAutoritzats xmlns:ns1716564955=\"http://www.owl-ontologies.com/ECSDIServices\"><autoritza_els_centres><URLServeiDisponibilitat>http://localhost:8080/ECSDI2/Centre2PortTypeService?WSDL#DemanarDisponibilitat</URLServeiDisponibilitat></autoritza_els_centres></ns1716564955:OutputCentresAutoritzats></S:Body></S:Envelope>"]
+;  (println str)
+;  (let [response (-> str xml/parse-str :content first :content first)]
+;    (println response)
+;    (println "response: [" (xml/emit-str response) "]")
+;    (let [output (match-output (:content response) (ConjuntCentresType.))]
+;      (println (.getAutoritzaElsCentres output)))))
+
+;(let [result (client/post "http://localhost:8080/ECSDI2/Asseguradora1PortTypeService" {:headers {"SOAPAction" "" "Content-Type" "text/xml; charset=utf-8"}
+;                               :body "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+;<S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\">
+;    <S:Header/>
+;    <S:Body>
+;        <ns2:init xmlns:ns2=\"http://www.owl-ontologies.com/ECSDIServices\"/>
+;    </S:Body>
+;</S:Envelope>"})]
+;    ;;(println result)
+;    (->
+;      result
+;      :body
+;      ))
+
