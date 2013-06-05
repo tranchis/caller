@@ -15,7 +15,6 @@
         java.io.ByteArrayInputStream
         javax.xml.datatype.DatatypeFactory
         (com.sun.xml.xsom XSSimpleType XSComplexType)
-        ;com.owl_ontologies.ecsdiservices.ConjuntCentresType
         com.sun.xml.xsom.visitor.XSContentTypeVisitor)
 
 (defn array-of [cname]
@@ -200,13 +199,30 @@
     res))
 
 (defn xml-to-attribute [xml-item]
-  (let [attribute-name (name (:tag xml-item))]
-    ;;(println "setterName: " (str "set" (apply str (map #(apply str (clojure.string/upper-case (first %)) (.substring % 1)) (clojure.string/split attribute-name #"-|_")))))
-    {(str (apply str (map #(apply str (clojure.string/upper-case (first %)) (.substring % 1)) (clojure.string/split attribute-name #"-|_"))))
-     (first (:content xml-item))}))
+  ;(println "xml-to-attribute: " xml-item)
+  (if (nil? xml-item)
+    {nil nil}
+    (let [attribute-name (name (:tag xml-item))]
+      ;(println "attribute-name: " attribute-name)
+      ;;(println "setterName: " (str "set" (apply str (map #(apply str (clojure.string/upper-case (first %)) (.substring % 1)) (clojure.string/split attribute-name #"-|_")))))
+      {(str (apply str (map #(apply str (clojure.string/upper-case (first %)) (.substring % 1)) (clojure.string/split attribute-name #"-|_"))))
+       (first (:content xml-item))})))
+
+(defn concat-elements [a b]
+  (if (instance? clojure.data.xml.Element a)
+    [a b]
+    (conj a b)))
 
 (defn xml-to-map [xml]
-  (apply merge-with vector (map xml-to-attribute xml)))
+  (let [attr-map (map xml-to-attribute xml)
+        c (count xml)
+        ;b (println "count: " c)
+        ;a (println "attr-map: " attr-map)
+        merged (apply merge-with concat-elements attr-map)
+        result (apply merge (map #(hash-map (key %) (if (= c 1) [(val %)] (vec (val %)))) merged))]
+    ;(println "merged is: " merged)
+    ;(println "xml-to-map results in: " result)
+    result))
 
 (def match-output)
 
@@ -249,6 +265,7 @@
               (into-array (list (match-output structure nested))))))))))
 
 (defn apply-operation-multiple [obj name value]
+  ;(println "apply-operation-multiple: " obj name value)
   (let [method (find-method obj name)
         list-obj (clojure.lang.Reflector/invokeInstanceMethod
                    obj
@@ -263,20 +280,18 @@
   (let [name (key operation)
         value (val operation)] 
     (if (not (nil? value))
-      (if (vector? value)
-        (apply-operation-multiple obj (str "get" name) value)
-        (let [m (find-method obj (str "set" name))]
+      (let [m (find-method obj (str "set" name))]
           (if (nil? m)
-            (apply-operation-multiple obj (str "get" name) [value])
-            (apply-operation-single obj (str "set" name) value)))))))
+            (apply-operation-multiple obj (str "get" name) value)
+            (apply-operation-single obj (str "set" name) (first value)))))))
 
 (defn match-output [xml obj]
   ;(println "match-output: " xml obj)
   (let [setters (into [] (get-setters obj))
+        ;a (println "setters: " setters)
         list-attr (xml-to-map xml)
+        ;b (println "list-attr: " list-attr)
         matched (apply merge (map #(hash-map % (get list-attr %)) setters))]
-    ;(println "setters: " setters)
-    ;(println "list-attr: " list-attr)
     ;(println "matched operations: " matched)
     (dorun (map #(apply-operation obj %) matched))
     obj))
@@ -308,41 +323,11 @@
   :methods [
             [callService [String #=(array-of Object) Class] Object]
            ])
-  
+
 ;; Compile, if we can
 ;; Should fail when called from Java (AOT) but that's fine
 (try
   (set! *compile-path* "contrib/clojure-binaries")
   (compile 'com.github.tranchis.caller.Caller)
   (catch Exception e))
-
-
-;(let [result (client/post "http://localhost:8080/ECSDI2/Asseguradora1PortTypeService" {:headers {"SOAPAction" "" "Content-Type" "text/xml; charset=utf-8"}
-;                               :body "<?xml version='1.0' encoding='UTF-8'?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Header></S:Header><S:Body><ns1716564955:LlistaCentresDeSalut xmlns:ns1716564955=\"http://www.owl-ontologies.com/ECSDIServices\"><InputRestriccions><seguint></seguint></InputRestriccions><InputAccioAutoritzacio>http://www.owl-ontologies.com/ECSDIOntology.owl#Analisi_de_orina</InputAccioAutoritzacio><InputPacientAutoritzacio><DNI></DNI><NumeroSS></NumeroSS><prefereix></prefereix></InputPacientAutoritzacio></ns1716564955:LlistaCentresDeSalut></S:Body></S:Envelope>"})]
-;    ;;(println result)
-;    (->
-;      result
-;      :body))
-
-;(let [str "<?xml version='1.0' encoding='UTF-8'?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Body><ns1716564955:OutputCentresAutoritzats xmlns:ns1716564955=\"http://www.owl-ontologies.com/ECSDIServices\"><autoritza_els_centres><URLServeiDisponibilitat>http://localhost:8080/ECSDI2/Centre2PortTypeService?WSDL#DemanarDisponibilitat</URLServeiDisponibilitat></autoritza_els_centres></ns1716564955:OutputCentresAutoritzats></S:Body></S:Envelope>"]
-;  (println str)
-;  (let [response (-> str xml/parse-str :content first :content first)]
-;    (println response)
-;    (println "response: [" (xml/emit-str response) "]")
-;    (let [output (match-output (:content response) (ConjuntCentresType.))]
-;      (println (.getAutoritzaElsCentres output)))))
-
-;(let [result (client/post "http://localhost:8080/ECSDI2/Asseguradora1PortTypeService" {:headers {"SOAPAction" "" "Content-Type" "text/xml; charset=utf-8"}
-;                               :body "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-;<S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\">
-;    <S:Header/>
-;    <S:Body>
-;        <ns2:init xmlns:ns2=\"http://www.owl-ontologies.com/ECSDIServices\"/>
-;    </S:Body>
-;</S:Envelope>"})]
-;    ;;(println result)
-;    (->
-;      result
-;      :body
-;      ))
 
